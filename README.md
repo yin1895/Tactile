@@ -35,15 +35,15 @@ This information already exists for screen readers and assistive technologies. T
 
 ### Lark and WeChat workflow
 
-<video src="https://raw.githubusercontent.com/yliust/Tactile/main/assets/demo.mp4" controls width="100%"></video>
+https://github.com/user-attachments/assets/49dc6bfe-0661-4ab0-9099-be3849b4137a
 
-[Open video file](assets/demo.mp4)
+[Open video file](https://github.com/user-attachments/assets/49dc6bfe-0661-4ab0-9099-be3849b4137a)
 
 ### CapCut video-editing workflow
 
-<video src="https://raw.githubusercontent.com/yliust/Tactile/main/assets/demo2.mp4" controls width="100%"></video>
+https://github.com/user-attachments/assets/7bc0f05e-9228-4cf1-abe3-ffb7e4722be2
 
-[Open video file](assets/demo2.mp4)
+[Open video file](https://github.com/user-attachments/assets/7bc0f05e-9228-4cf1-abe3-ffb7e4722be2)
 
 
 ## How to Use Tactile

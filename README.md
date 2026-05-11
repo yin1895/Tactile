@@ -37,13 +37,9 @@ This information already exists for screen readers and assistive technologies. T
 
 https://github.com/user-attachments/assets/49dc6bfe-0661-4ab0-9099-be3849b4137a
 
-[Open video file](https://github.com/user-attachments/assets/49dc6bfe-0661-4ab0-9099-be3849b4137a)
-
 ### CapCut video-editing workflow
 
 https://github.com/user-attachments/assets/7bc0f05e-9228-4cf1-abe3-ffb7e4722be2
-
-[Open video file](https://github.com/user-attachments/assets/7bc0f05e-9228-4cf1-abe3-ffb7e4722be2)
 
 
 ## How to Use Tactile

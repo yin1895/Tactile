@@ -28,7 +28,6 @@ This information already exists for screen readers and assistive technologies. T
 
 **Agent-ready software should also be human-accessible software.**
 
----
 
 ## Demo
 
@@ -36,7 +35,6 @@ This information already exists for screen readers and assistive technologies. T
 
 > Demo video coming soon.
 
----
 
 ## How to Use Tactile
 
@@ -53,7 +51,6 @@ export OPENAI_BASE_URL=xxxxxxx
 export OPENAI_API_KEY=xxxxxxx
 ```
 
----
 
 ## Why Tactile?
 
@@ -71,7 +68,6 @@ read accessibility semantics -> use OCR-grounded coordinates when needed -> fall
 
 Agents should not only see software on a screen. When better information is available, they should first touch the structure of the interface.
 
----
 
 ## Tactile v0
 
@@ -93,7 +89,6 @@ Its goal is to package an accessibility-first operating method for agents:
 
 Tactile provides operating strategy and method tools. It does not take over all agent decisions. When to downgrade, retry, or hand control back to the agent remains context-dependent.
 
----
 
 ## Workflow
 
@@ -117,7 +112,6 @@ Level 3: Native visual computer use
 
 Humans and agents can move faster when they can share the same semantic path through software.
 
----
 
 ## Verification
 
@@ -139,7 +133,6 @@ After each operation, the agent should verify the result whenever possible:
 
 Verification failure does not always mean the action failed. It means the interface did not provide enough reliable feedback, and the agent may need to retry, choose another path, or fall back to a more general visual operating method.
 
----
 
 ## Why Build This Ecosystem?
 
@@ -160,7 +153,6 @@ Tactile's long-term goal is not only to help agents operate computers better.
 
 It also aims to encourage software ecosystems to expose better semantic structure, so that agent-ready software can also become accessible software for all humans.
 
----
 
 ## Current Status
 
@@ -172,7 +164,13 @@ We are also seeing that even many widely used applications still lack strong acc
 
 A longer-term goal is to provide interface layers for software that has not yet implemented sufficient accessibility support for human and AI.
 
----
+
+## Acknowledgements
+
+Tactile is built on decades of work from accessibility communities, screen readers, assistive technologies, operating-system accessibility APIs, OCR systems, UI automation projects, agent runtimes, and open-source developers.
+
+We are grateful to everyone who has helped make software more readable, operable, and adaptable. Tactile hopes to connect that work with the agent era, and to make the same semantic infrastructure useful to both humans and AI.
+
 
 ## Join Us
 

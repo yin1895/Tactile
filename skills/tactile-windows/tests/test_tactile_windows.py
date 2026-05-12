@@ -68,6 +68,19 @@ class TactileWindowsArtifactTests(unittest.TestCase):
 
             self.assertEqual(Path(proc.stdout.strip()), session_dir / "windows-app-workflow")
 
+    def test_repo_path_uses_bundled_windows_sdk_by_default(self):
+        original_env = dict(os.environ)
+        try:
+            os.environ.pop("WINDOWS_USE_SDK_ROOT", None)
+
+            repo = windows_interface.repo_path(None)
+        finally:
+            os.environ.clear()
+            os.environ.update(original_env)
+
+        self.assertEqual(repo, windows_interface.DEFAULT_REPO)
+        self.assertTrue((repo / "WindowsUseSDK.ps1").exists())
+
     def test_workflow_appends_session_plan_output_for_execute(self):
         calls: list[tuple[list[str], Path]] = []
 

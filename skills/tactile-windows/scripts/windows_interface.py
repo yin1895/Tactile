@@ -27,6 +27,7 @@ if os.fspath(SCRIPTS_ROOT) not in sys.path:
 from utils import artifacts as artifact_utils
 
 REPO_ENV = "WINDOWS_USE_SDK_ROOT"
+DEFAULT_REPO = SKILL_ROOT / "vendor" / "WindowsUseSDK"
 ARTIFACT_SUBDIR = artifact_utils.ARTIFACT_SUBDIR
 default_artifact_path = artifact_utils.default_artifact_path
 session_artifact_dir = artifact_utils.session_artifact_dir
@@ -38,30 +39,42 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
+def sdk_root_from_candidate(candidate: Path) -> Path | None:
+    if (candidate / "WindowsUseSDK.ps1").exists():
+        return candidate
+    for nested in (
+        candidate / "vendor" / "WindowsUseSDK",
+        candidate / "native" / "WindowsUseSDK",
+    ):
+        if (nested / "WindowsUseSDK.ps1").exists():
+            return nested.resolve()
+    return None
+
+
 def find_repo_root(start: Path) -> Path | None:
     for parent in [start, *start.parents]:
-        direct = parent / "WindowsUseSDK.ps1"
-        if direct.exists():
-            return parent
-        nested = parent / "native" / "WindowsUseSDK" / "WindowsUseSDK.ps1"
-        if nested.exists():
-            return nested.parent
+        found = sdk_root_from_candidate(parent)
+        if found:
+            return found
     return None
 
 
 def repo_path(value: str | None) -> Path:
     raw = value or os.environ.get(REPO_ENV)
     if raw:
-        repo = Path(raw).expanduser().resolve()
-        if (repo / "WindowsUseSDK.ps1").exists():
-            return repo
-        nested = repo / "native" / "WindowsUseSDK"
-        if (nested / "WindowsUseSDK.ps1").exists():
-            return nested.resolve()
-    found = find_repo_root(Path.cwd().resolve()) or find_repo_root(Path(__file__).resolve())
+        found = sdk_root_from_candidate(Path(raw).expanduser().resolve())
+        if found:
+            return found
+    found = (
+        sdk_root_from_candidate(DEFAULT_REPO)
+        or find_repo_root(Path.cwd().resolve())
+        or find_repo_root(Path(__file__).resolve())
+    )
     if found:
         return found
-    raise SystemExit(f"WindowsUseSDK checkout required: pass --repo or set {REPO_ENV}")
+    raise SystemExit(
+        f"WindowsUseSDK not found: expected bundled {DEFAULT_REPO}, or pass --repo / set {REPO_ENV}"
+    )
 
 
 def powershell_exe() -> str:
@@ -92,9 +105,13 @@ def run_sdk(repo: Path, args: list[str], *, timeout: float | None = None) -> dic
         os.fspath(repo / "WindowsUseSDK.ps1"),
         *args,
     ]
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     proc = subprocess.run(
         cmd,
         cwd=repo,
+        env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         timeout=timeout,
@@ -680,7 +697,7 @@ def relative_line_top(payload: dict[str, Any], line: dict[str, Any]) -> float:
     return line_top(line) - capture_region(payload)["y"]
 
 
-def find_ocr_lines_for_query(payload: dict[str, Any], query: str) -> list[dict[str, Any]]:
+def find_ocr_lines_for_query(payload: dict[str, Any], query: str, *, min_relative_top: float | None = 72.0) -> list[dict[str, Any]]:
     query_norm = normalize_match_text(query)
     if not query_norm:
         return []
@@ -695,7 +712,7 @@ def find_ocr_lines_for_query(payload: dict[str, Any], query: str) -> list[dict[s
         norm = normalize_match_text(text)
         if not norm:
             continue
-        if relative_line_top(payload, line) < 72:
+        if min_relative_top is not None and relative_line_top(payload, line) < min_relative_top:
             continue
         allow_contains = len(query_norm) >= 4 or any(ord(ch) > 127 for ch in query_norm)
         if norm != query_norm and not (allow_contains and query_norm in norm):
@@ -790,8 +807,8 @@ def find_feishu_contact_result_lines(payload: dict[str, Any], query: str) -> tup
     return accepted, rejected
 
 
-def find_ocr_line_for_query(payload: dict[str, Any], query: str) -> dict[str, Any] | None:
-    matches = find_ocr_lines_for_query(payload, query)
+def find_ocr_line_for_query(payload: dict[str, Any], query: str, *, min_relative_top: float | None = 72.0) -> dict[str, Any] | None:
+    matches = find_ocr_lines_for_query(payload, query, min_relative_top=min_relative_top)
     return matches[0] if matches else None
 
 
@@ -1598,7 +1615,7 @@ def perform_wechat_send_message(
         if title_ocr:
             title_rect = regions["title_ocr"]
             title_payload = ocr_rect(repo, resolved_hwnd, *title_rect)
-            title_matches = find_ocr_lines_for_query(title_payload, chat)
+            title_matches = find_ocr_lines_for_query(title_payload, chat, min_relative_top=0.0)
             title_verification = {
                 "matched": bool(title_matches),
                 "matched_candidates": [summarize_ocr_line(line) for line in title_matches[:3]],
@@ -1628,7 +1645,7 @@ def perform_wechat_send_message(
         if draft_ocr:
             draft_rect = regions["draft_ocr"]
             draft_payload = ocr_rect(repo, resolved_hwnd, *draft_rect)
-            draft_matches = find_ocr_lines_for_query(draft_payload, message)
+            draft_matches = find_ocr_lines_for_query(draft_payload, message, min_relative_top=0.0)
             draft_verification = {
                 "matched": bool(draft_matches) if message_norm else False,
                 "matched_candidates": [summarize_ocr_line(line) for line in draft_matches[:3]],
@@ -2761,7 +2778,7 @@ def add_global(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--repo",
         default=None,
-        help="WindowsUseSDK checkout. Defaults to WINDOWS_USE_SDK_ROOT or auto-detection from the repo.",
+        help="WindowsUseSDK checkout. Defaults to the bundled vendor/WindowsUseSDK, then WINDOWS_USE_SDK_ROOT or auto-detection.",
     )
     parser.add_argument("--output", type=Path)
 

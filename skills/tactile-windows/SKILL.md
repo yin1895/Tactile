@@ -10,9 +10,9 @@ Use this skill to inspect and operate local Windows applications through UI Auto
 ## Requirements
 
 - Run on Windows with a working Python 3.11+.
-- Have a WindowsUseSDK checkout available. Pass it with `--repo <path>` or set `WINDOWS_USE_SDK_ROOT`.
-- For workflow mode, the WindowsUseSDK checkout must include `workflows/llm_app_workflow.py`.
-- For LLM-driven workflows, set the API variables expected by the WindowsUseSDK workflow.
+- The Windows UI Automation runtime is bundled at `vendor/WindowsUseSDK`; no separate WindowsUseSDK checkout is required for a normal clone.
+- Pass `--repo <path>` or set `WINDOWS_USE_SDK_ROOT` only when intentionally testing a different WindowsUseSDK checkout.
+- For LLM-driven workflows, install the optional Python dependencies from `pyproject.toml` and set `TACTILE_OPENAI_API_KEY`; optionally set `TACTILE_OPENAI_BASE_URL` and `TACTILE_MODEL`.
 
 ## Primary CLI
 
@@ -28,7 +28,7 @@ PowerShell can also call:
 powershell -ExecutionPolicy Bypass -File .\bin\tactile-windows.ps1 <command> ...
 ```
 
-The CLI wraps `scripts/windows_interface.py`, which in turn wraps `WindowsUseSDK.ps1`. This skill keeps Tactile-specific guidance, app guides, and session-scoped artifacts next to the Windows command surface.
+The CLI wraps `scripts/windows_interface.py`, which uses the bundled `vendor/WindowsUseSDK/WindowsUseSDK.ps1` by default. This skill keeps Tactile-specific guidance, app guides, and session-scoped artifacts next to the Windows command surface.
 
 ## App Resolution Rule
 
@@ -49,7 +49,7 @@ For multi-window tasks, re-list or re-observe after a dialog, popup, child proce
 1. Resolve and activate the target app/window with `list-apps`, `open`, or `observe`.
 2. Start every multi-step task with structured observation: `elements --target <app>` or `observe <app>`.
 3. For sparse Electron/WebView apps, run `elements --view raw` before OCR. Raw UIA paths can still be used by `uia` and `ocr`.
-4. Use the observation priority `UIA > targeted OCR/probe > workflow visual context > raw coordinates`. Do not use screenshots as the primary reasoning path.
+4. Use the observation priority `UIA > targeted OCR/probe > workflow visual context > raw coordinates`. Do not use screenshots as the primary reasoning path. Visual inspection of screenshots or OCR capture images is the last resort: use it only after UIA, focused probes, and targeted OCR cannot answer the question, keep the crop tight, and name why the fallback was needed.
 5. Treat every click, keypress, text input, scroll, and wait as a single-action boundary. Re-observe before deciding the next action.
 6. For high-risk external actions such as sending messages, posting comments, payments, destructive edits, account changes, and form submissions, split the task into locate, draft/open controls, verify, submit.
 7. Before final submit/send, verify the active window, target recipient/context, and draft/action state from the latest observation or targeted OCR.
@@ -75,10 +75,16 @@ $artifactDir = .\bin\tactile-windows.cmd artifact-dir
 
 ## Fast App Paths
 
-- Use `wechat-send-message` for routine WeChat contact/group messaging instead of manually issuing each click, paste, OCR, and send action. It resolves WeChat once, computes frame-relative profile regions, selects any existing compose draft before pasting, uses direct Win32 input by default, runs targeted title/draft OCR unless disabled, focuses the compose area, presses Enter to send, and writes one JSON result.
+- Use `wechat-send-message` for routine WeChat contact/group messaging only after the current WeChat session has a verified search-focus path, or when the intended chat is already open and the flow can skip searching. The helper resolves WeChat once, computes frame-relative profile regions, selects any existing compose draft before pasting, uses direct Win32 input by default, focuses the compose area, presses Enter to send, and writes one JSON result. For routine short messages, prefer `--require-title-match --no-draft-ocr` so the command performs one targeted recipient check and avoids the slower, less reliable compose OCR pass.
+- For a routine WeChat send, do not spend time on broad discovery once `open 微信` returns a visible main window with a valid `hwnd` and `frame`. `list-apps` may surface minimized/offscreen auxiliary WeChat windows such as media viewers; ignore those after `open` recovers the main chat window. Skip `dry-run`, extra `artifact-dir`, and repeated `observe`/`elements` passes unless the main window, focus path, or recipient state is ambiguous.
+- Do not split WeChat sends into `wechat-send-message --draft-only` followed by a manual `input keypress enter`. The helper's contact-search Enter is not a harmless navigation action if focus missed the search box; it can send the contact name into the currently open chat, and a later title check can still pass when that chat is already the target. If the user asks to draft only, stop after the draft and report that it is prepared. If the user asks to send, use one verified send path rather than a helper draft plus a separate submit.
+- Before typing a WeChat contact name into search, check whether the intended chat is already open. If targeted title verification already matches the recipient, skip search entirely and operate only on the compose area. Never paste the recipient/search token into the UI unless the latest UIA observation or targeted probe confirms the search field is focused; in sparse WeChat UIA, a click on the profile search center followed by the search placeholder disappearing/clearing in a targeted probe is enough focus evidence for a routine helper send.
+- For WeChat send verification, prefer structured state and targeted UIA/probe checks over broad visual fallback. Screenshots/OCR are supporting evidence only; if focus, active chat, or draft state is uncertain, stop or re-locate through UIA/profile regions instead of pressing Enter.
+- For WeChat read-and-reply tasks, treat message reading as content extraction rather than send verification. First verify the active chat title, then use the latest frame-relative message-region OCR crops. If the OCR text is unreadable, retry with a tighter line-specific crop or a UTF-8 readback of the saved OCR JSON before opening an image. Inspect the OCR capture image only when the reply depends on exact content and text extraction is still semantically ambiguous.
 - For important WeChat messages that contain meeting links, meeting numbers, or other must-preserve details, prefer a single-line message or send short sequential messages. Some shells and chat controls can treat multiline CLI arguments as separate input; verify the final visible chat content, not only command success.
-- Do not add a separate `dry-run`, manual character-code check, or extra OCR pass for routine user-supplied Chinese text. Console rendering may show mojibake even when JSON and Python strings are correct; only investigate encoding if the JSON value itself is wrong when read as UTF-8.
-- Use `--draft-only` for final human review, `--dry-run` to inspect computed regions without typing, `--sdk-input` when direct Win32 input is blocked, `--keep-existing-draft` only when intentional, `--send-method button` only when Enter is known not to send in that WeChat setup, and `--require-title-match` / `--require-draft-match` only when OCR reliably returns readable text for the current language.
+- Do not add a separate `dry-run`, manual character-code check, or extra OCR pass for routine user-supplied Chinese text. Console rendering may show mojibake even when JSON and Python strings are correct; treat `status: success` plus `title_verification.matched: true` as the result signal, and only investigate encoding if the JSON bytes/value are wrong when read as UTF-8.
+- Distinguish console mojibake from OCR corruption. If `Get-Content` or PowerShell output shows Chinese as mojibake, re-read the saved JSON with an explicit UTF-8 path (`Get-Content -Encoding UTF8` or another UTF-8 byte reader) before assuming the action or OCR failed. If the UTF-8 JSON itself contains mojibake-like OCR text while the crop image is readable, treat that OCR text as corrupted for exact message reading and do not base a semantic reply on it.
+- Use `--draft-only` only when the user asks to prepare without sending or the message contains high-value details that need human-visible review. Use `--dry-run` to inspect computed regions without typing, `--sdk-input` when direct Win32 input is blocked, `--keep-existing-draft` only when intentional, `--send-method button` only when Enter is known not to send in that WeChat setup, and `--require-draft-match` only when compose OCR reliably returns readable text for the current language.
 - For unsupported WeChat flows such as Moments, comments, media viewers, or unusual popups, fall back to the manual observe-plan-act workflow in `references/app-guides/WeChat.md`.
 - For Tencent Meeting scheduling, read `references/app-guides/Tencent-Meeting.md`. Treat schedule, time-picker, and invitation dialogs as separate windows; after invoking `预定会议`, re-run `list-apps --query wemeetapp` before retrying clicks in the main window.
 - Use `feishu-switch-org` before Feishu/Lark messaging when the user names an account or organization, then use `feishu-send-message --draft-only` for risky or first-time sends. Feishu search must choose a verified contact/result title row from OCR, not a row where the target only appears in `包含...`, group-message metadata, search history, or snippets. `feishu-send-message` automatically retries Enter against the compose-area `Chrome_RenderWidgetHostHWND` child when the top-level Feishu `hwnd` leaves the draft visible. If doing the fallback manually, do not reopen the chat or paste again; use the child `native_window_handle`, click the verified compose area, send `input keypress enter --hwnd <child-hwnd>`, and verify the compose placeholder or cleared draft. See `references/app-guides/Feishu-Lark.md` for the detailed fallback.
@@ -102,7 +108,7 @@ $artifactDir = .\bin\tactile-windows.cmd artifact-dir
 
 ## Workflow Mode
 
-Use `workflow` for multi-step work when the WindowsUseSDK workflow is available:
+Use `workflow` for multi-step work. The bundled WindowsUseSDK includes `workflows/llm_app_workflow.py`:
 
 ```powershell
 .\bin\tactile-windows.cmd workflow "switch org and draft a message" -- --target Feishu --execute --max-steps 6 --max-actions-per-step 1
@@ -128,7 +134,7 @@ App-specific operation guidance lives under `references/app-guides/`.
 - Read `references/app-guides/WeChat.md` before diagnosing WeChat search, message sending, Moments, likes, or comments.
 - Read `references/debugging.md` for WindowsUseSDK/UIA/OCR troubleshooting.
 
-The local CLI does not automatically inject these guides into external WindowsUseSDK workflows. Load the relevant guide yourself before manual diagnosis or before giving a workflow prompt that depends on app-specific behavior.
+The local CLI does not automatically inject these guides into LLM workflow prompts. Load the relevant guide yourself before manual diagnosis or before giving a workflow prompt that depends on app-specific behavior.
 
 ## Artifacts
 

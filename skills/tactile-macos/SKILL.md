@@ -1,6 +1,6 @@
 ---
 name: tactile
-description: "Operate and diagnose local macOS apps through the bundled MacosUseSDK CLI. Use when Codex/Tactile needs to list or open apps, inspect Accessibility trees, run OCR, click/type/scroll, send keyboard shortcuts, execute observe-plan-act workflows, or debug UI automation permissions and app-specific flows for Lark/Feishu/WeChat."
+description: "Operate and diagnose local macOS apps through the bundled MacosUseSDK CLI. Use when Codex/Tactile needs to list or open apps, inspect Accessibility trees, run OCR, click/type/scroll, send keyboard shortcuts, execute observe-plan-act workflows, or debug UI automation permissions and app-specific flows for Lark/Feishu/WeChat/Apple Music."
 ---
 
 # Tactile
@@ -170,6 +170,7 @@ App-specific operation guidance lives under `references/app-guides/`.
 - If the target app has a guide in this directory, read that guide before starting the concrete operation flow. This is mandatory for both automated `workflow` execution and manual diagnosis/control.
 - Read `references/app-guides/Lark.md` before operating Feishu/Lark organization switching, contact search, or message sending.
 - Read `references/app-guides/WeChat.md` before operating WeChat search, message sending, profile cards, Moments, likes, or comments.
+- Read `references/app-guides/AppleMusic.md` before operating Apple Music search, album navigation, playlist selection, queue actions, or playback.
 - Read `references/app-guides/TencentMeeting.md` before operating Tencent Meeting meeting scheduling, date/time selection, duration selection, or invite sharing.
 - Read `references/app-guides/Jianying.md` before operating Jianying/CapCut video imports, timeline assembly, speed changes, transitions, or export.
 

@@ -18,6 +18,7 @@ if os.fspath(SCRIPTS_ROOT) not in sys.path:
 from utils import artifacts as artifact_utils
 
 REPO_ENV = "WINDOWS_USE_SDK_ROOT"
+DEFAULT_REPO = SKILL_ROOT / "vendor" / "WindowsUseSDK"
 default_artifact_path = artifact_utils.default_artifact_path
 session_scoped_output_path = artifact_utils.session_scoped_output_path
 
@@ -27,14 +28,23 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
+def sdk_root_from_candidate(candidate: Path) -> Path | None:
+    if (candidate / "WindowsUseSDK.ps1").exists():
+        return candidate
+    for nested in (
+        candidate / "vendor" / "WindowsUseSDK",
+        candidate / "native" / "WindowsUseSDK",
+    ):
+        if (nested / "WindowsUseSDK.ps1").exists():
+            return nested.resolve()
+    return None
+
+
 def find_repo_root(start: Path) -> Path | None:
     for parent in [start, *start.parents]:
-        direct = parent / "WindowsUseSDK.ps1"
-        if direct.exists():
-            return parent
-        nested = parent / "native" / "WindowsUseSDK" / "WindowsUseSDK.ps1"
-        if nested.exists():
-            return nested.parent
+        found = sdk_root_from_candidate(parent)
+        if found:
+            return found
     return None
 
 
@@ -44,7 +54,7 @@ def parse_args() -> tuple[argparse.Namespace, list[str]]:
     parser.add_argument(
         "--repo",
         default=os.environ.get(REPO_ENV),
-        help="Path to the WindowsUseSDK repo. Defaults to WINDOWS_USE_SDK_ROOT or auto-detection.",
+        help="Path to the WindowsUseSDK repo. Defaults to the bundled vendor/WindowsUseSDK, then WINDOWS_USE_SDK_ROOT or auto-detection.",
     )
     parser.add_argument("--target", default=None, help="Optional app name, app id, exe name, path, or window title.")
     parser.add_argument("--execute", action="store_true", help="Execute the planned UI actions.")
@@ -65,13 +75,18 @@ def parse_args() -> tuple[argparse.Namespace, list[str]]:
 def main() -> int:
     args, extra = parse_args()
     if args.repo:
-        repo = Path(args.repo).expanduser().resolve()
-        if not (repo / "WindowsUseSDK.ps1").exists() and (repo / "native" / "WindowsUseSDK" / "WindowsUseSDK.ps1").exists():
-            repo = repo / "native" / "WindowsUseSDK"
+        repo = sdk_root_from_candidate(Path(args.repo).expanduser().resolve())
     else:
-        repo = find_repo_root(Path.cwd().resolve()) or find_repo_root(Path(__file__).resolve())
+        repo = (
+            sdk_root_from_candidate(DEFAULT_REPO)
+            or find_repo_root(Path.cwd().resolve())
+            or find_repo_root(Path(__file__).resolve())
+        )
     if not repo:
-        print(f"error: set --repo or {REPO_ENV} to the WindowsUseSDK checkout", file=sys.stderr)
+        print(
+            f"error: WindowsUseSDK not found; expected bundled {DEFAULT_REPO}, or set --repo / {REPO_ENV}",
+            file=sys.stderr,
+        )
         return 2
 
     workflow = repo / "workflows" / "llm_app_workflow.py"

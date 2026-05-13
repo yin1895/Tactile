@@ -187,7 +187,44 @@ class MacosTactileTraceTests(unittest.TestCase):
         self.assertGreater(replay["coordinate_action_rate"], 0)
         self.assertEqual(replay["coordinate_sources"]["coordinate"], 2)
         self.assertEqual(replay["coordinate_source_known_rate"], 1.0)
+        self.assertEqual(replay["planned_coordinate_sources"]["coordinate"], 4)
+        self.assertEqual(replay["planned_coordinate_source_known_rate"], 1.0)
         self.assertEqual(cli_payload["trace_count"], 1)
+
+    def test_replay_reports_planned_coordinate_sources_without_runtime_points(self):
+        trace = tactile_trace.build_trace(
+            {
+                "target": {"identifier": "WeChat"},
+                "instruction": "route with OCR",
+                "task_source": "adapter_dry_run",
+                "final_status": "finished",
+                "steps": [
+                    {
+                        "step": 1,
+                        "plan": {
+                            "summary": "choose OCR coordinate actuator",
+                            "actions": [{"type": "route", "source": "ocr_coordinate"}],
+                        },
+                        "execution_results": [
+                            {
+                                "ok": True,
+                                "mode": "ocr_coordinate",
+                                "action": {"type": "route", "source": "ocr_coordinate"},
+                            }
+                        ],
+                        "verification": {"status": "planned", "covered": True},
+                    }
+                ],
+            },
+            platform="macos",
+        )
+
+        replay = tactile_trace.replay_trace_payloads([trace])
+
+        self.assertEqual(replay["coordinate_action_count"], 1)
+        self.assertEqual(replay["coordinate_source_count"], 0)
+        self.assertEqual(replay["planned_coordinate_sources"]["ocr"], 1)
+        self.assertEqual(replay["planned_coordinate_source_known_rate"], 1.0)
 
 
 if __name__ == "__main__":

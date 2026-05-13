@@ -7,6 +7,7 @@ import argparse
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -319,9 +320,15 @@ def load_app_exploration_module():
     return module
 
 
-def write_or_print(data: Any, output: Path | None) -> None:
+def resolved_output_path(output: Path | None, *, direct_output: bool = False) -> Path | None:
+    if output is None:
+        return None
+    return output.expanduser() if direct_output else session_scoped_output_path(output)
+
+
+def write_or_print(data: Any, output: Path | None, *, direct_output: bool = False) -> None:
     text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
-    output = session_scoped_output_path(output)
+    output = resolved_output_path(output, direct_output=direct_output)
     if output:
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(text, encoding="utf-8")
@@ -330,8 +337,8 @@ def write_or_print(data: Any, output: Path | None) -> None:
         print(text, end="")
 
 
-def write_text_or_print(text: str, output: Path | None) -> None:
-    output = session_scoped_output_path(output)
+def write_text_or_print(text: str, output: Path | None, *, direct_output: bool = False) -> None:
+    output = resolved_output_path(output, direct_output=direct_output)
     if output:
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(text, encoding="utf-8")
@@ -340,9 +347,14 @@ def write_text_or_print(text: str, output: Path | None) -> None:
         print(text, end="")
 
 
-def write_jsonl_or_print(rows: list[dict[str, Any]], output: Path | None) -> Path | None:
+def write_jsonl_or_print(
+    rows: list[dict[str, Any]],
+    output: Path | None,
+    *,
+    direct_output: bool = False,
+) -> Path | None:
     text = "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows)
-    output = session_scoped_output_path(output)
+    output = resolved_output_path(output, direct_output=direct_output)
     if output:
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(text, encoding="utf-8")
@@ -800,19 +812,58 @@ def cmd_plan_log(args: argparse.Namespace) -> int:
             "steps": steps,
         },
         args.output,
+        direct_output=getattr(args, "direct_output", False),
     )
     return 0
 
 
 def cmd_trace_replay(args: argparse.Namespace) -> int:
-    write_or_print(tactile_trace.replay_trace_files(args.paths), args.output)
+    write_or_print(
+        tactile_trace.replay_trace_files(args.paths),
+        args.output,
+        direct_output=getattr(args, "direct_output", False),
+    )
+    return 0
+
+
+def uv_path() -> str | None:
+    explicit = os.environ.get("TACTILE_UV")
+    if explicit:
+        expanded = Path(explicit).expanduser()
+        if expanded.is_file() and os.access(expanded, os.X_OK):
+            return os.fspath(expanded)
+    return shutil.which("uv")
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    uv = uv_path()
+    payload = {
+        "status": "ok",
+        "skill_root": os.fspath(SKILL_ROOT),
+        "scripts_root": os.fspath(SCRIPTS_ROOT),
+        "python": sys.executable,
+        "uv": {
+            "available": uv is not None,
+            "path": uv,
+            "env": os.environ.get("TACTILE_UV"),
+        },
+        "venv": {
+            "path": os.environ.get("TACTILE_MACOS_WORKFLOW_VENV") or os.fspath(SKILL_ROOT / ".venv"),
+            "python_version": os.environ.get("TACTILE_MACOS_PYTHON_VERSION", "3.12"),
+        },
+        "direct_output": {
+            "flag": "--direct-output",
+            "description": "Use with report/dry-run commands to write exactly to --output, including temporary paths.",
+        },
+    }
+    write_or_print(payload, args.output, direct_output=getattr(args, "direct_output", False))
     return 0
 
 
 def cmd_profile_app(args: argparse.Namespace) -> int:
     module = load_app_exploration_module()
     profile = module.profile_target(args.target, guide_dir=args.guide_dir or module.APP_GUIDE_DIR)
-    write_or_print(profile, args.output)
+    write_or_print(profile, args.output, direct_output=getattr(args, "direct_output", False))
     return 0
 
 
@@ -820,7 +871,7 @@ def cmd_catalog_actions(args: argparse.Namespace) -> int:
     module = load_app_exploration_module()
     profile = module.load_json_file(args.profile)
     catalog = module.catalog_from_profile(profile)
-    write_or_print(catalog, args.output)
+    write_or_print(catalog, args.output, direct_output=getattr(args, "direct_output", False))
     return 0
 
 
@@ -840,7 +891,7 @@ def cmd_run_adapter(args: argparse.Namespace) -> int:
         catalog_path=args.catalog,
         inputs=inputs,
     )
-    write_or_print(result, args.output)
+    write_or_print(result, args.output, direct_output=getattr(args, "direct_output", False))
     return 0
 
 
@@ -848,7 +899,7 @@ def cmd_eval_suite(args: argparse.Namespace) -> int:
     module = load_app_exploration_module()
     runs, summary = module.eval_suite(args.suite, strategy=args.strategy, runs=args.runs)
     if args.output:
-        output = write_jsonl_or_print(runs, args.output)
+        output = write_jsonl_or_print(runs, args.output, direct_output=getattr(args, "direct_output", False))
         print(json.dumps({"output": os.fspath(output), "summary": summary}, ensure_ascii=False, indent=2))
     else:
         write_or_print({"runs": runs, "summary": summary}, None)
@@ -858,6 +909,11 @@ def cmd_eval_suite(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    doctor = subparsers.add_parser("doctor", help="Report local runtime paths and dependency setup for this skill.")
+    doctor.add_argument("--output", type=Path)
+    doctor.add_argument("--direct-output", action="store_true", help="Write exactly to --output instead of session-scoping temporary paths.")
+    doctor.set_defaults(func=cmd_doctor)
 
     build = subparsers.add_parser("build", help="Build one or more Swift products.")
     add_global(build)
@@ -961,11 +1017,13 @@ def build_parser() -> argparse.ArgumentParser:
     profile_app.add_argument("--target", required=True, help="App bundle path, bundle identifier/name, or web URL.")
     profile_app.add_argument("--guide-dir", type=Path, help="Directory containing Tactile app guides. Defaults to references/app-guides.")
     profile_app.add_argument("--output", type=Path)
+    profile_app.add_argument("--direct-output", action="store_true", help="Write exactly to --output instead of session-scoping temporary paths.")
     profile_app.set_defaults(func=cmd_profile_app)
 
     catalog_actions = subparsers.add_parser("catalog-actions", help="Build a CapabilityCatalog from a profile-app JSON output.")
     catalog_actions.add_argument("--profile", type=Path, required=True)
     catalog_actions.add_argument("--output", type=Path)
+    catalog_actions.add_argument("--direct-output", action="store_true", help="Write exactly to --output instead of session-scoping temporary paths.")
     catalog_actions.set_defaults(func=cmd_catalog_actions)
 
     run_adapter = subparsers.add_parser("run-adapter", help="Route one catalog task through a dry-run adapter strategy.")
@@ -976,6 +1034,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_adapter.add_argument("--verify", action="store_true", help="Require a structured verifier in the dry-run result.")
     run_adapter.add_argument("--inputs-json", help="Optional JSON object with task input placeholders.")
     run_adapter.add_argument("--output", type=Path)
+    run_adapter.add_argument("--direct-output", action="store_true", help="Write exactly to --output instead of session-scoping temporary paths.")
     run_adapter.set_defaults(func=cmd_run_adapter)
 
     eval_suite = subparsers.add_parser("eval-suite", help="Run a dry-run adapter evaluation suite and emit JSONL run records.")
@@ -983,6 +1042,7 @@ def build_parser() -> argparse.ArgumentParser:
     eval_suite.add_argument("--strategy", choices=["baseline", "code-aware", "ax", "visual"], default="code-aware")
     eval_suite.add_argument("--runs", type=int, default=10)
     eval_suite.add_argument("--output", type=Path, help="Write run records as JSONL.")
+    eval_suite.add_argument("--direct-output", action="store_true", help="Write exactly to --output instead of session-scoping temporary paths.")
     eval_suite.set_defaults(func=cmd_eval_suite)
 
     workflow = subparsers.add_parser("workflow", help="Run the end-to-end LLM observe-plan-act workflow.")
@@ -1092,11 +1152,13 @@ def build_parser() -> argparse.ArgumentParser:
     plan_log = subparsers.add_parser("plan-log", help="Summarize a workflow plan-output JSON file.")
     plan_log.add_argument("path", type=Path)
     plan_log.add_argument("--output", type=Path)
+    plan_log.add_argument("--direct-output", action="store_true", help="Write exactly to --output instead of session-scoping temporary paths.")
     plan_log.set_defaults(func=cmd_plan_log)
 
     trace_replay = subparsers.add_parser("trace-replay", help="Aggregate metrics from trace fixtures, run logs, or JSONL traces.")
     trace_replay.add_argument("paths", nargs="+", type=Path)
     trace_replay.add_argument("--output", type=Path)
+    trace_replay.add_argument("--direct-output", action="store_true", help="Write exactly to --output instead of session-scoping temporary paths.")
     trace_replay.set_defaults(func=cmd_trace_replay)
 
     return parser

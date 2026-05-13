@@ -10,4 +10,11 @@ else
   workflow_dir=$(CDPATH= cd -- "$script_dir/../macos-app-workflow" && pwd)
 fi
 
+case "${1:-}" in
+  doctor|run-adapter|eval-suite|trace-replay|plan-log|profile-app|catalog-actions|artifact-dir|--help|-h)
+    system_python=${TACTILE_MACOS_SYSTEM_PYTHON:-python3}
+    exec "$system_python" "$workflow_dir/scripts/macos_interface.py" "$@"
+    ;;
+esac
+
 exec "$workflow_dir/bin/tactile-macos-python" "$workflow_dir/scripts/macos_interface.py" "$@"

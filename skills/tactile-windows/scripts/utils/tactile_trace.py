@@ -10,6 +10,7 @@ TRACE_KIND = "tactile_trace"
 VERIFICATION_STATUSES = {"passed", "failed", "planned", "skipped", "unknown"}
 ACTION_SOURCES = {"ax", "uia", "ocr", "profile_region", "visual", "coordinate", "unknown"}
 COORDINATE_SOURCE_KEYS = ("ax", "uia", "ocr", "profile_region", "visual", "coordinate", "unknown")
+PLANNED_COORDINATE_SOURCE_KEYS = ("ocr", "profile_region", "visual", "coordinate", "unknown")
 TEXT_KEYS = {"text", "message", "body", "query", "value"}
 
 
@@ -669,6 +670,21 @@ def update_coordinate_sources(aggregate: dict[str, Any], steps: list[dict[str, A
                 source_counts[coordinate] += 1
 
 
+def update_planned_coordinate_sources(aggregate: dict[str, Any], steps: list[dict[str, Any]]) -> None:
+    source_counts = aggregate["planned_coordinate_sources"]
+    for step in steps:
+        actions = (step.get("plan") or {}).get("actions") or []
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            coordinate_source = action.get("coordinate_source")
+            source = source_name(coordinate_source if coordinate_source is not None else action.get("source_summary"))
+            if source in {"ocr", "profile_region", "visual", "coordinate"}:
+                source_counts[source] += 1
+            elif coordinate_source is not None or ("x" in action and "y" in action):
+                source_counts["unknown"] += 1
+
+
 def add_replay_counts(bucket: dict[str, Any], metrics: dict[str, Any], steps: list[dict[str, Any]], verified: bool) -> None:
     bucket["trace_count"] += 1
     bucket["verified_count"] += 1 if verified else 0
@@ -688,6 +704,7 @@ def add_replay_counts(bucket: dict[str, Any], metrics: dict[str, Any], steps: li
 def replay_trace_payloads(traces: list[dict[str, Any]]) -> dict[str, Any]:
     aggregate: dict[str, Any] = replay_bucket()
     aggregate["coordinate_sources"] = {source: 0 for source in COORDINATE_SOURCE_KEYS}
+    aggregate["planned_coordinate_sources"] = {source: 0 for source in PLANNED_COORDINATE_SOURCE_KEYS}
     aggregate["by_platform"] = {}
     aggregate["by_source"] = {}
     for trace in traces:
@@ -700,6 +717,7 @@ def replay_trace_payloads(traces: list[dict[str, Any]]) -> dict[str, Any]:
         verified = bool(outcome.get("verified"))
         add_replay_counts(aggregate, metrics, steps, verified)
         update_coordinate_sources(aggregate, steps)
+        update_planned_coordinate_sources(aggregate, steps)
         platform_stats = aggregate["by_platform"].setdefault(platform, replay_bucket())
         source_stats = aggregate["by_source"].setdefault(source, replay_bucket())
         add_replay_counts(platform_stats, metrics, steps, verified)
@@ -710,6 +728,16 @@ def replay_trace_payloads(traces: list[dict[str, Any]]) -> dict[str, Any]:
     aggregate["coordinate_source_count"] = total_coordinate_sources
     aggregate["coordinate_source_unknown_count"] = aggregate["coordinate_sources"].get("unknown", 0)
     aggregate["coordinate_source_known_rate"] = rate(known_coordinate_sources, total_coordinate_sources)
+    total_planned_coordinate_sources = sum(aggregate["planned_coordinate_sources"].values())
+    known_planned_coordinate_sources = (
+        total_planned_coordinate_sources - aggregate["planned_coordinate_sources"].get("unknown", 0)
+    )
+    aggregate["planned_coordinate_source_count"] = total_planned_coordinate_sources
+    aggregate["planned_coordinate_source_unknown_count"] = aggregate["planned_coordinate_sources"].get("unknown", 0)
+    aggregate["planned_coordinate_source_known_rate"] = rate(
+        known_planned_coordinate_sources,
+        total_planned_coordinate_sources,
+    )
     for bucket in aggregate["by_platform"].values():
         add_bucket_rates(bucket)
     for bucket in aggregate["by_source"].values():

@@ -139,13 +139,58 @@ class WindowsTactileTraceTests(unittest.TestCase):
             with contextlib.redirect_stdout(stdout):
                 windows_interface.cmd_trace_replay(type("Args", (), {"paths": [log_path], "output": None})())
             payload = json.loads(stdout.getvalue())
+            direct_output = Path(temp_dir) / "replay.json"
+            with contextlib.redirect_stdout(io.StringIO()):
+                windows_interface.cmd_trace_replay(
+                    type("Args", (), {"paths": [log_path], "output": direct_output, "direct_output": True})()
+                )
+            direct_payload = json.loads(direct_output.read_text(encoding="utf-8"))
 
         self.assertEqual(payload["trace_count"], 1)
+        self.assertEqual(direct_payload["trace_count"], 1)
         self.assertEqual(payload["by_platform"]["windows"]["trace_count"], 1)
         self.assertGreater(payload["verification_coverage"], 0)
         self.assertGreater(payload["coordinate_action_rate"], 0)
         self.assertEqual(payload["coordinate_sources"]["coordinate"], 1)
         self.assertEqual(payload["coordinate_source_known_rate"], 1.0)
+        self.assertEqual(payload["planned_coordinate_sources"]["coordinate"], 1)
+        self.assertEqual(payload["planned_coordinate_sources"]["ocr"], 1)
+        self.assertEqual(payload["planned_coordinate_source_known_rate"], 1.0)
+
+    def test_replay_reports_planned_coordinate_sources_without_runtime_points(self):
+        trace = tactile_trace.build_trace(
+            {
+                "target": {"identifier": "WeChat"},
+                "instruction": "route with OCR",
+                "task_source": "adapter_dry_run",
+                "final_status": "finished",
+                "steps": [
+                    {
+                        "step": 1,
+                        "plan": {
+                            "summary": "choose OCR coordinate actuator",
+                            "actions": [{"type": "route", "source": "ocr_coordinate"}],
+                        },
+                        "execution_results": [
+                            {
+                                "ok": True,
+                                "mode": "ocr_coordinate",
+                                "action": {"type": "route", "source": "ocr_coordinate"},
+                            }
+                        ],
+                        "verification": {"status": "planned", "covered": True},
+                    }
+                ],
+            },
+            platform="windows",
+        )
+
+        replay = tactile_trace.replay_trace_payloads([trace])
+
+        self.assertEqual(replay["coordinate_action_count"], 1)
+        self.assertEqual(replay["coordinate_source_count"], 0)
+        self.assertEqual(replay["planned_coordinate_sources"]["ocr"], 1)
+        self.assertEqual(replay["planned_coordinate_source_known_rate"], 1.0)
 
 
 if __name__ == "__main__":

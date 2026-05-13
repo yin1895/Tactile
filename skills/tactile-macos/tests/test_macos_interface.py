@@ -1,6 +1,8 @@
 import importlib.util
+import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -148,6 +150,11 @@ class MacosInterfaceOcrTests(unittest.TestCase):
 
             self.assertEqual(output, session_dir / "macos-app-workflow" / "lark_switch_org_run.json")
 
+    def test_direct_output_path_preserves_temporary_path(self):
+        output = macos_interface.resolved_output_path(Path("/tmp/lark_switch_org_run.json"), direct_output=True)
+
+        self.assertEqual(output, Path("/tmp/lark_switch_org_run.json"))
+
     def test_var_folders_temp_output_path_is_relocated_to_session_artifacts(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             session_dir = Path(temp_dir) / "session-1"
@@ -251,3 +258,31 @@ class MacosInterfaceOcrTests(unittest.TestCase):
                 fake_uv_log.read_text(encoding="utf-8"),
             )
             self.assertEqual(proc.stdout, "fake-python <-c> <print('ignored')>\n")
+
+    def test_wrapper_uses_system_python_for_stdlib_commands_without_uv(self):
+        workflow_dir = Path(__file__).resolve().parents[1]
+        wrapper = workflow_dir / "bin" / "tactile-macos"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "doctor.json"
+            env = dict(os.environ)
+            env.update(
+                {
+                    "PATH": "/usr/bin:/bin",
+                    "TACTILE_MACOS_SYSTEM_PYTHON": sys.executable,
+                    "TACTILE_UV": "",
+                }
+            )
+
+            proc = subprocess.run(
+                [os.fspath(wrapper), "doctor", "--output", os.fspath(output), "--direct-output"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env,
+                check=True,
+            )
+
+            self.assertEqual(proc.stdout, f"{output}\n")
+            self.assertTrue(output.is_file())
+            payload = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(payload["python"], sys.executable)

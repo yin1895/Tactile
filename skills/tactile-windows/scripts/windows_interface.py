@@ -129,9 +129,15 @@ def run_sdk(repo: Path, args: list[str], *, timeout: float | None = None) -> dic
         raise SystemExit(f"WindowsUseSDK returned non-JSON output: {stdout[:2000]!r}") from exc
 
 
-def write_or_print(data: Any, output: Path | None) -> None:
+def resolved_output_path(output: Path | None, *, direct_output: bool = False) -> Path | None:
+    if output is None:
+        return None
+    return output.expanduser() if direct_output else session_scoped_output_path(output)
+
+
+def write_or_print(data: Any, output: Path | None, *, direct_output: bool = False) -> None:
     text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
-    output = session_scoped_output_path(output)
+    output = resolved_output_path(output, direct_output=direct_output)
     if output:
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(text, encoding="utf-8")
@@ -2987,12 +2993,17 @@ def cmd_plan_log(args: argparse.Namespace) -> int:
             "steps": steps,
         },
         args.output,
+        direct_output=getattr(args, "direct_output", False),
     )
     return 0
 
 
 def cmd_trace_replay(args: argparse.Namespace) -> int:
-    write_or_print(tactile_trace.replay_trace_files(args.paths), args.output)
+    write_or_print(
+        tactile_trace.replay_trace_files(args.paths),
+        args.output,
+        direct_output=getattr(args, "direct_output", False),
+    )
     return 0
 
 
@@ -3099,11 +3110,13 @@ def build_parser() -> argparse.ArgumentParser:
     plan_log = subparsers.add_parser("plan-log", help="Summarize a workflow plan-output JSON file.")
     add_global(plan_log)
     plan_log.add_argument("path", type=Path)
+    plan_log.add_argument("--direct-output", action="store_true", help="Write exactly to --output instead of session-scoping temporary paths.")
     plan_log.set_defaults(func=cmd_plan_log)
 
     trace_replay = subparsers.add_parser("trace-replay", help="Aggregate metrics from trace fixtures, run logs, or JSONL traces.")
     add_global(trace_replay)
     trace_replay.add_argument("paths", nargs="+", type=Path)
+    trace_replay.add_argument("--direct-output", action="store_true", help="Write exactly to --output instead of session-scoping temporary paths.")
     trace_replay.set_defaults(func=cmd_trace_replay)
 
     wechat_send_message = subparsers.add_parser(
